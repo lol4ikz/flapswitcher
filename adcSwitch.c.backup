@@ -1,0 +1,99 @@
+#ifndef F_CPU
+#define F_CPU 1000000
+#endif
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+
+volatile uint16_t overflow_count = 0;
+
+ISR(TIM0_OVF_vect) {
+    overflow_count++; // Increment overflow count
+}
+
+void timer_init() {
+    TCCR0A = 0; // normal mode
+    TCCR0B |= (1<<CS02); // prescaler 256
+    TIMSK0 |= (1<<TOIE0); // interrupt when timer overflows
+    TCNT0 = 0; // clear timer register
+}
+
+void timer_stop() {
+    TCNT0 = 0; // clear timer register
+    TCCR0B &= ~((1 << CS02) | (1 << CS01) | (1 << CS00)); // Prescaler bits 000 that means timer stop
+}
+
+uint16_t adc_init() {
+    ADCSRA |= (1<<ADEN); // Enabe ADC 
+    ADMUX |= (1<<MUX0); // choose ADC1
+    ADCSRA |= (1<<ADPS0) | (1<<ADPS1); // prescaler 8
+    //ADCSRA |= (1<<ADATE); // Auto trigger enable Free running mode ADTS = 000
+    ADCSRA |= (1<<ADSC); // Start convertion
+    while (ADCSRA & (1 << ADSC)); // Wait for conversion to complete
+    return ADC; // Read ADC value
+}
+
+//uint16_t get_adc_result() {
+//    uint16_t res = 0;
+//    if (ADCSRA & (1<<ADIF))  // check flag to zero
+//    res = ADC;
+//    ADCSRA |= (1<<ADIF); // set flag to one
+//    return res;
+//}
+
+
+int main() {
+    DDRB |= (1<<PB4); // pin3 to output
+    DDRB |= (1<<PB0); // pin5 to output
+    sei(); // enable global interupts
+    // 600ms == 9
+
+    uint16_t result = 0;
+    uint8_t timer_flag = 0;
+    
+
+    while (1) {
+        if (overflow_count == 9)
+            PORTB ^= (1<<PB0);
+        switch(~(PINB & (1<<PB4))){
+            case 1: // is low
+                if (!timer_flag) {
+                    result = adc_init();
+                    if (result > 500) {
+                        timer_flag = 1;
+                        timer_init();
+                    }
+                } else {
+                    if (overflow_count >= 9) {
+                        timer_stop();
+                        timer_flag = 0;
+                        overflow_count = 0;
+                        result = adc_init();
+                        if (result > 500) 
+                            PORTB ^= (1<<PB4); // toggle output
+                    }
+                }
+                break;
+            case 0: // is high
+                if (!timer_flag) {
+                    result = adc_init();
+                    if (result > 500) {
+                        timer_flag = 1;
+                        timer_init();
+                    }
+                } else {
+                    if (overflow_count >= 9) {
+                        timer_stop();
+                        timer_flag = 0;
+                        overflow_count = 0;
+                        result = adc_init();
+                        if (result > 500) 
+                            PORTB ^= (1<<PB4); // toggle output
+                    }
+                }
+
+                break;
+        }
+    }
+}
